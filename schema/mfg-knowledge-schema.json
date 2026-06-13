@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.org/mfg-knowledge/schema/1.0.0/mfg-knowledge-schema.json",
+  "$id": "https://example.org/mfg-knowledge/schema/1.1.0/mfg-knowledge-schema.json",
   "title": "Manufacturing Knowledge Schema",
-  "description": "製造業ナレッジデータ管理フォーマット（RO-Crate拡張）のJSONスキーマ仕様 v1.0.0",
-  "version": "1.0.0",
+  "description": "製造業ナレッジデータ管理フォーマット（RO-Crate拡張）のJSONスキーマ仕様 v1.1.0",
+  "version": "1.1.0",
 
   "$defs": {
 
@@ -31,6 +31,54 @@
       "type": "string",
       "enum": ["draft", "under_review", "released", "obsolete"],
       "description": "draft: 作成中 / under_review: 審査中 / released: 発行済 / obsolete: 廃止"
+    },
+
+    "DesignPhase": {
+      "type": "string",
+      "enum": ["requirements", "basic_design", "detail_design", "cad_modeling", "verification", "production"],
+      "description": "要件定義 / 基本設計 / 詳細設計 / CAD作成 / 試験評価 / 量産移行"
+    },
+
+    "DesignItemStatus": {
+      "type": "string",
+      "enum": ["under_study", "decided", "superseded"],
+      "description": "under_study: 検討中 / decided: 確定 / superseded: 上位版に置換"
+    },
+
+    "AssociatedMedia": {
+      "type": "object",
+      "required": ["@type", "encodingFormat", "contentUrl"],
+      "properties": {
+        "@type":           { "const": "MediaObject" },
+        "name":            { "type": "string" },
+        "encodingFormat":  { "type": "string" },
+        "contentUrl":      { "type": "string" },
+        "mfg:mediaRole":   {
+          "type": "string",
+          "enum": ["creo_trail", "cad_native", "fem_result", "test_data", "photo"]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "DesignItem": {
+      "type": "object",
+      "required": ["@type", "@id", "name", "mfg:designPhase", "mfg:status", "dcterms:isPartOf"],
+      "properties": {
+        "@type":                  { "const": "mfg:DesignItem" },
+        "@id":                    { "type": "string", "pattern": "^#design-item-" },
+        "name":                   { "type": "string", "description": "設計事項名" },
+        "description":            { "type": "string", "description": "検討内容・根拠" },
+        "mfg:designPhase":        { "$ref": "#/$defs/DesignPhase" },
+        "mfg:status":             { "$ref": "#/$defs/DesignItemStatus" },
+        "dcterms:isPartOf":       { "$ref": "#/$defs/IdRef", "description": "所属する親文書 @id" },
+        "prov:wasDerivedFrom":    { "$ref": "#/$defs/IdRef", "description": "派生元の要求事項・設計事項 @id" },
+        "mfg:decidedBy":          { "$ref": "#/$defs/IdRef", "description": "決定者 Person @id" },
+        "mfg:decidedAt":          { "$ref": "#/$defs/IsoDateTime" },
+        "prov:wasRevisionOf":     { "$ref": "#/$defs/IdRef", "description": "旧版設計事項 @id" },
+        "mfg:promotedTo":         { "$ref": "#/$defs/IdRef", "description": "昇格先エンティティ @id（CadModel等）" }
+      },
+      "additionalProperties": false
     },
 
     "Priority": {
@@ -579,7 +627,12 @@
           "items": { "$ref": "#/$defs/PmiAnnotation" }
         },
         "mfg:inspectionPlan":  { "$ref": "#/$defs/IdRef" },
-        "mfg:designNote":      { "type": "string" }
+        "mfg:designNote":      { "type": "string" },
+        "schema:associatedMedia": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AssociatedMedia" },
+          "description": "関連メディア（Creoトレイル・ネイティブCAD・FEM結果等）"
+        }
       },
       "additionalProperties": false
     },
@@ -696,7 +749,8 @@
           { "$ref": "#/$defs/BillOfMaterials" },
           { "$ref": "#/$defs/CadModel" },
           { "$ref": "#/$defs/InspectionPlan" },
-          { "$ref": "#/$defs/TestReport" }
+          { "$ref": "#/$defs/TestReport" },
+          { "$ref": "#/$defs/DesignItem" }
         ]
       }
     }

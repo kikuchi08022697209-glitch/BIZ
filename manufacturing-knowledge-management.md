@@ -16,6 +16,7 @@
 8. [適用事例：電車用空調機 RAC-35型](#8-適用事例電車用空調機-rac-35型)
 9. [ユースケース別クエリパターン](#9-ユースケース別クエリパターン)
 10. [拡張ガイドライン](#10-拡張ガイドライン)
+11. [データ構築プロセス：段階的ナレッジ蓄積アプローチ](#11-データ構築プロセス段階的ナレッジ蓄積アプローチ)
 
 ---
 
@@ -871,3 +872,265 @@ JIS F 8501 ──┘      SPEC-RAC35-v2
 
 *本ドキュメントは RO-Crate 思想を製造業ナレッジ管理に適用した設計仕様書です。*
 *語彙仕様（`mfg:` namespace）は各組織のシステム要件に応じて拡張してください。*
+
+---
+
+## 11. データ構築プロセス：段階的ナレッジ蓄積アプローチ
+
+### 11.1 基本コンセプト：最小単位は「親との紐づけ」
+
+設計担当者が設計事項を検討する際、**参照した親文書へのリンク1本**が最小のナレッジ単位となる。
+この断片を積み重ねることで、開発プロセスの進行とともに JSON が有機的に成長する。
+
+```json
+{
+  "@id": "#design-item-001",
+  "@type": "mfg:DesignItem",
+  "name": "フレーム材質選定",
+  "mfg:designPhase": "基本設計",
+  "dcterms:isPartOf":    {"@id": "#spec-rac35-v2"},
+  "prov:wasDerivedFrom": {"@id": "#req-vibration-roof"}
+}
+```
+
+設計事項の断片が蓄積されると、依存関係・検証関係がリンクされ、
+最終的に製品全体のナレッジグラフ（大規模 JSON-LD）が構築される。
+
+```
+設計事項A（材質選定）─┐
+設計事項B（板厚決定）─┼──→ CADモデル（PMI付き）─┐
+設計事項C（形状決定）─┘                          ├──→ 試験成績書 ──→ 量産仕様
+設計事項D（穴位置） ──→ BOM ────────────────────┘
+```
+
+### 11.2 追加される語彙プレフィックス
+
+| プレフィックス | 用途 | 代表的な述語 |
+|---|---|---|
+| `mfg:` | 製造業固有の型・述語（独自オントロジー） | `mfg:drives`, `mfg:verifies`, `mfg:hasPmi` |
+| `dcterms:` | 文書間の親子・参照関係 | `dcterms:isPartOf` |
+| `prov:` | 派生・変更履歴（W3C PROV） | `prov:wasDerivedFrom`, `prov:wasRevisionOf` |
+| `schema:` | 汎用メタデータ（名称・素材など） | `schema:associatedMedia` |
+
+### 11.3 DesignItem（設計事項）エンティティ
+
+**`@type`:** `"mfg:DesignItem"`
+**`@id` パターン:** `#design-item-{連番}` （例: `#design-item-001`）
+
+設計検討中の断片ナレッジを表す。詳細設計フェーズで CadModel や BomEntry に昇格する。
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `name` | string | ✓ | 設計事項名（例: 「フレーム材質選定」） |
+| `description` | string | — | 検討内容・根拠 |
+| `mfg:designPhase` | enum | ✓ | 設計フェーズ（下記参照） |
+| `dcterms:isPartOf` | IdRef | ✓ | 所属する親文書（ProductSpec 等） `@id` |
+| `prov:wasDerivedFrom` | IdRef | — | 派生元の要求事項・上位設計事項 `@id` |
+| `mfg:decidedBy` | IdRef | — | 決定者（Person `@id`） |
+| `mfg:decidedAt` | IsoDateTime | — | 決定日時 |
+| `mfg:status` | enum | ✓ | `under_study` / `decided` / `superseded` |
+| `prov:wasRevisionOf` | IdRef | — | 旧版設計事項 `@id`（改訂時） |
+| `mfg:promotedTo` | IdRef | — | 昇格先のエンティティ（CadModel・BomEntry 等） |
+
+**`mfg:designPhase` 列挙値:**
+
+| 値 | フェーズ |
+|---|---|
+| `requirements` | 要件定義 |
+| `basic_design` | 基本設計 |
+| `detail_design` | 詳細設計 |
+| `cad_modeling` | CAD作成 |
+| `verification` | 試験・評価 |
+| `production` | 量産移行 |
+
+### 11.4 フェーズ別のナレッジ構築フロー
+
+| フェーズ | 設計作業 | ナレッジ操作 | 生成される主なリンク |
+|---|---|---|---|
+| **要件定義** | 規格・仕様書の確定 | Standard / ProductSpec ノード作成 | `conformsTo` |
+| **基本設計** | 設計事項の検討（親文書参照） | DesignItem ノードを逐次追加 | `dcterms:isPartOf` / `prov:wasDerivedFrom` |
+| **詳細設計** | 設計事項間の依存関係確定 | 横断リンクを追加 | `mfg:drives` / `dependsOn` |
+| **CAD作成** | 3DモデルへのPMI付与 | CadModel / PmiAnnotation ノード追加 | `mfg:hasPmi` / `mfg:linkedCadModel` |
+| **試験・評価** | 試験成績書の発行 | TestReport ノード追加・検証リンク完結 | `mfg:verifies` / `mfg:verifiedByPmi` |
+| **量産移行** | 量産仕様の確定 | DesignItem を `mfg:promotedTo` で昇格先に紐づけ | `mfg:promotedTo` |
+
+#### フェーズ進行に伴うグラフの成長イメージ
+
+```
+【要件定義フェーズ】
+  #std-jis-e4054 ──conformsTo──→ #spec-rac35-v2
+                                       │
+                                  requirements[]
+                                       │
+                                  REQ-001, REQ-003, ...
+
+【基本設計フェーズ】（DesignItem が追加される）
+  #design-item-001（材質選定）
+    └─ dcterms:isPartOf    ──→ #spec-rac35-v2
+    └─ prov:wasDerivedFrom ──→ #req-vibration-roof
+
+  #design-item-002（板厚決定）
+    └─ dcterms:isPartOf    ──→ #spec-rac35-v2
+    └─ prov:wasDerivedFrom ──→ #design-item-001  ← 設計事項同士がリンク
+
+【詳細設計フェーズ】（依存関係リンクが追加される）
+  #design-item-003（フレーム幅決定）
+    └─ mfg:drives ──→ #design-item-004（凝縮器幅）
+    └─ mfg:drives ──→ #design-item-005（インバータ位置）
+
+【CAD作成フェーズ】（CadModel・PMI に昇格）
+  #cad-rac35-frame
+    └─ mfg:promotedFrom ──→ #design-item-001, #design-item-002, #design-item-003
+    └─ mfg:hasPmi ──→ [#pmi-dim-frame-w, #pmi-gt-001, ...]
+
+【試験・評価フェーズ】（TestReport でグラフが閉じる）
+  #test-vibration-2026
+    └─ mfg:verifies ──→ REQ-003
+    └─ mfg:testedObject ──→ #cad-rac35-frame
+```
+
+### 11.5 断片 JSON のマージ戦略
+
+断片 JSON（1設計事項ごとの小さな JSON）を統合ナレッジファイルにマージする際のルール。
+
+```
+マージルール:
+1. 同一 @id が存在しない場合  → @graph[] に新規追加
+2. 同一 @id が存在する場合    → フィールドを上書きマージ
+                               旧バージョンは prov:wasRevisionOf で参照保持
+3. リンクフィールド（IdRef[]）→ 既存要素を保持したまま新要素を追加
+4. mfg:status の遷移         → under_study → decided → superseded のみ許可
+```
+
+```json
+{
+  "@id": "#design-item-001",
+  "@type": "mfg:DesignItem",
+  "name": "フレーム材質選定",
+  "mfg:status": "decided",
+  "mfg:promotedTo": {"@id": "#cad-rac35-frame"},
+  "prov:wasRevisionOf": {"@id": "#design-item-001-draft"},
+  "prov:wasDerivedFrom": {"@id": "#req-vibration-roof"}
+}
+```
+
+### 11.6 Creo トレイルファイルとの連携
+
+PTC Creo のトレイルファイル（モデリング操作ログ）を CadModel ノードに紐づけることで、
+CAD モデリング自動化システムとの連携が可能になる。
+
+```json
+{
+  "@type": "mfg:CadModel",
+  "@id": "#cad-rac35-frame",
+  "name": "RAC-35型 筐体フレーム・架台 3Dモデル",
+  "mfg:fileRef": "cad/RAC35-FRM-RevB.step",
+
+  "schema:associatedMedia": [
+    {
+      "@type": "MediaObject",
+      "name": "Creo トレイルファイル Rev.B",
+      "encodingFormat": "text/plain",
+      "contentUrl": "cad/trail/RAC35-FRM-RevB.trl",
+      "mfg:mediaRole": "creo_trail"
+    },
+    {
+      "@type": "MediaObject",
+      "name": "Creo ネイティブモデル",
+      "encodingFormat": "application/octet-stream",
+      "contentUrl": "cad/RAC35-FRM-RevB.prt",
+      "mfg:mediaRole": "cad_native"
+    }
+  ]
+}
+```
+
+### 11.7 システム実装ファイル構成
+
+```
+knowledge-management/
+├── ro-crate-metadata.json        ← 統合ナレッジデータ（メインファイル）
+│
+├── fragments/                    ← 断片ナレッジ（設計事項ごとの小JSON）
+│   ├── design-item-001.json      ← フレーム材質選定
+│   ├── design-item-002.json      ← 板厚決定
+│   └── ...
+│
+├── scripts/
+│   ├── merge.py                  ← 断片JSON を ro-crate-metadata.json にマージ
+│   ├── validate.py               ← JSON-LD構文・リンク整合性チェック
+│   └── trace.py                  ← トレーサビリティレポート生成
+│
+└── templates/
+    ├── design-item.template.json ← 設計事項断片のテンプレート
+    └── test-report.template.json ← 試験成績書ノードのテンプレート
+```
+
+### 11.8 断片 JSON テンプレート
+
+#### design-item.template.json
+
+```json
+{
+  "@context": [
+    "https://w3id.org/ro/crate/1.1/context",
+    "https://schema.org",
+    {
+      "mfg":     "https://example.org/mfg-knowledge/vocab#",
+      "dcterms": "http://purl.org/dc/terms/",
+      "prov":    "http://www.w3.org/ns/prov#"
+    }
+  ],
+  "@graph": [
+    {
+      "@type": "mfg:DesignItem",
+      "@id": "#design-item-{連番}",
+      "name": "{設計事項名}",
+      "description": "{検討内容・根拠}",
+      "mfg:designPhase": "{フェーズ}",
+      "mfg:status": "under_study",
+      "dcterms:isPartOf":    {"@id": "{親文書 @id}"},
+      "prov:wasDerivedFrom": {"@id": "{派生元 @id}"},
+      "mfg:decidedBy": {"@id": "{担当者 @id}"},
+      "mfg:decidedAt": "{YYYY-MM-DDTHH:MM:SS+09:00}"
+    }
+  ]
+}
+```
+
+#### test-report.template.json
+
+```json
+{
+  "@context": [ "..." ],
+  "@graph": [
+    {
+      "@type": "mfg:TestReport",
+      "@id": "#test-{種別}-{年}",
+      "name": "{試験成績書名称}",
+      "mfg:revision": "1.0",
+      "mfg:status": "draft",
+      "dateCreated": "{YYYY-MM-DD}",
+      "mfg:verifies": [{"@id": "{要求事項 @id}"}],
+      "mfg:conformsTo": [{"@id": "{規格 @id}"}],
+      "mfg:testedObject": [{"@id": "{CADモデル @id}"}],
+      "mfg:derivedFrom": {"@id": "{仕様書 @id}"},
+      "mfg:testConditions": {},
+      "mfg:verdict": "PASS",
+      "mfg:fileRef": "reports/{ファイル名}.pdf",
+      "mfg:measurements": []
+    }
+  ]
+}
+```
+
+### 11.9 実装上の注意事項
+
+| 事項 | 内容 |
+|---|---|
+| **`@id` の一意性** | プロジェクト全体で衝突しないよう命名規則を厳守する（`#[type]-[product]-[seq]` 形式） |
+| **マージ戦略** | 同一 `@id` が存在する場合は上書きとし、旧バージョンは `prov:wasRevisionOf` で参照保持 |
+| **フェーズメタデータ** | 各ノードに `mfg:designPhase` を付与し、フェーズ別のナレッジフィルタリングを可能にする |
+| **Creo 連携** | CADモデルノードにトレイルファイルのパスを `schema:associatedMedia` で紐づける |
+| **ステータス遷移の制約** | `mfg:status` は `under_study → decided → superseded` の一方向遷移のみ許可 |
+| **参照整合性** | `fragments/` の各断片にある `@id` 参照が `ro-crate-metadata.json` に存在することをマージ時に検証 |

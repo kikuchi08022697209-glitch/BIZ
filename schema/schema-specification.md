@@ -1,7 +1,7 @@
 # 製造業ナレッジデータ管理 スキーマ仕様書
 
-**スキーマID:** `https://example.org/mfg-knowledge/schema/1.0.0/mfg-knowledge-schema.json`
-**バージョン:** 1.0.0
+**スキーマID:** `https://example.org/mfg-knowledge/schema/1.1.0/mfg-knowledge-schema.json`
+**バージョン:** 1.1.0
 **策定日:** 2026-06-13
 **準拠標準:** JSON Schema Draft 2020-12 / RO-Crate 1.1 / schema.org
 
@@ -13,6 +13,7 @@
 2. [共通型定義（`$defs`）](#2-共通型定義defs)
 3. [エンティティ型リファレンス](#3-エンティティ型リファレンス)
    - 3.1 [Standard（標準規格）](#31-standard標準規格)
+   - 3.0 [DesignItem（設計事項）](#30-designitem設計事項)
    - 3.2 [ProductSpec（製品仕様書）](#32-productspec製品仕様書)
    - 3.3 [Requirement（要求事項）](#33-requirement要求事項)
    - 3.4 [BillOfMaterials（部品表）](#34-billofmaterials部品表)
@@ -94,6 +95,8 @@ ro-crate-metadata.json
 | `IsoDateTime` | ISO 8601 日時文字列（日付のみも可） | `dateCreated`, `dateModified` 等 |
 | `Revision` | 版数文字列（1.0 / A / Rev.3 等） | 各エンティティの `mfg:revision` |
 | `DocumentStatus` | ドキュメントステータス列挙 | 各エンティティの `mfg:status` |
+| `DesignPhase` | 設計フェーズ列挙 | `DesignItem.mfg:designPhase` |
+| `DesignItemStatus` | 設計事項ステータス列挙 | `DesignItem.mfg:status` |
 | `Priority` | 要求優先度列挙 | `Requirement.mfg:priority` |
 | `CtqLevel` | 品質特性重要度列挙 | PMI全般の `mfg:ctqLevel` |
 | `ParametricRole` | パラメトリック役割列挙 | `DimensionAnnotation.mfg:parametricRole` |
@@ -102,10 +105,62 @@ ro-crate-metadata.json
 | `ChangeHistoryEntry` | 変更履歴1件 | `DimensionAnnotation.mfg:changeHistory[]` |
 | `NoteItem` | 注記1項目 | `GeneralNote.mfg:noteItems[]` |
 | `InspectionItem` | 検査計画1項目 | `InspectionPlan.mfg:inspectionItems[]` |
+| `AssociatedMedia` | 関連メディア（Creoトレイル等） | `CadModel.schema:associatedMedia[]` |
 
 ---
 
 ## 3. エンティティ型リファレンス
+
+### 3.0 DesignItem（設計事項）
+
+**`@type`:** `"mfg:DesignItem"`
+**`@id` パターン:** `#design-item-{連番}` （例: `#design-item-001`）
+
+設計検討中の断片ナレッジを表す最小単位のエンティティ。
+親文書へのリンク1本から始まり、詳細設計フェーズで CadModel や BomEntry に昇格する。
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `name` | string | ✓ | 設計事項名（例: `"フレーム材質選定"`） |
+| `description` | string | — | 検討内容・根拠 |
+| `mfg:designPhase` | DesignPhase | ✓ | 設計フェーズ（下記参照） |
+| `mfg:status` | DesignItemStatus | ✓ | `under_study` / `decided` / `superseded` |
+| `dcterms:isPartOf` | IdRef | ✓ | 所属する親文書（ProductSpec 等）`@id` |
+| `prov:wasDerivedFrom` | IdRef | — | 派生元の要求事項・上位設計事項 `@id` |
+| `mfg:decidedBy` | IdRef | — | 決定者（Person `@id`） |
+| `mfg:decidedAt` | IsoDateTime | — | 確定日時 |
+| `prov:wasRevisionOf` | IdRef | — | 旧版設計事項 `@id`（改訂時に設定） |
+| `mfg:promotedTo` | IdRef | — | 昇格先エンティティ（CadModel・BomEntry 等）`@id` |
+
+**`mfg:designPhase` 列挙値（DesignPhase）:**
+
+| 値 | フェーズ |
+|---|---|
+| `requirements` | 要件定義 |
+| `basic_design` | 基本設計 |
+| `detail_design` | 詳細設計 |
+| `cad_modeling` | CAD作成 |
+| `verification` | 試験・評価 |
+| `production` | 量産移行 |
+
+**`mfg:status` 列挙値（DesignItemStatus）—一方向遷移のみ許可:**
+
+```
+under_study  →  decided  →  superseded
+（検討中）      （確定）     （上位版に置換）
+```
+
+**AssociatedMedia（`CadModel.schema:associatedMedia[]` の要素）:**
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `@type` | const | ✓ | `"MediaObject"` 固定 |
+| `name` | string | — | メディア名称 |
+| `encodingFormat` | string | ✓ | MIMEタイプ（例: `"text/plain"`） |
+| `contentUrl` | string | ✓ | ファイルパス |
+| `mfg:mediaRole` | enum | — | `creo_trail` / `cad_native` / `fem_result` / `test_data` / `photo` |
+
+---
 
 ### 3.1 Standard（標準規格）
 
@@ -517,6 +572,14 @@ PMI は `CadModel.mfg:hasPmi` 配列に埋め込む。
 | `under_review` | 審査中 |
 | `released` | 発行済（量産・調達に使用可） |
 | `obsolete` | 廃止（参照のみ可） |
+
+### DesignItemStatus
+
+| 値 | 意味 | 遷移 |
+|---|---|---|
+| `under_study` | 検討中 | → `decided` |
+| `decided` | 確定 | → `superseded` |
+| `superseded` | 上位版に置換済み（終端状態） | — |
 
 ### Priority
 

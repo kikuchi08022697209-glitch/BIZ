@@ -786,5 +786,149 @@ ajv validate -s schema/mfg-knowledge-schema.json -d ro-crate-metadata.json
 
 ---
 
-*製造業ナレッジデータ管理フォーマット v1.0.0*
+---
+
+## 9. 段階的ナレッジ構築：設計事項（DesignItem）の使い方
+
+### 9.1 なぜ設計事項という概念が必要か
+
+製品仕様書・BOM・CADモデルは「完成した設計結果」ですが、
+設計の途中では「なぜその材質を選んだか」「なぜその板厚にしたか」という
+**意思決定の過程**が失われがちです。
+
+`DesignItem`（設計事項）は、この**設計過程の断片**を小さな JSON として記録し、
+最終的なドキュメント（CAD・BOM）への昇格まで追跡できるエンティティです。
+
+### 9.2 DesignItem の最小記述
+
+1件の設計検討を記録する最小単位は「親文書への参照1本」です。
+
+```json
+{
+  "@type": "mfg:DesignItem",
+  "@id": "#design-item-001",
+  "name": "フレーム材質選定",
+  "mfg:designPhase": "basic_design",
+  "mfg:status": "under_study",
+  "dcterms:isPartOf":    {"@id": "#spec-rac35-v2"},
+  "prov:wasDerivedFrom": {"@id": "#req-vibration-roof"}
+}
+```
+
+これだけで「この設計事項は RAC-35仕様書に属し、振動耐久要求から派生した」という
+トレーサビリティが記録されます。
+
+### 9.3 DesignItem のステータス遷移
+
+```
+under_study（検討中）
+    │
+    │ 設計確定
+    ↓
+decided（確定）
+    │
+    │ 上位版で置換
+    ↓
+superseded（旧版）
+```
+
+**確定時の記述例：**
+
+```json
+{
+  "@type": "mfg:DesignItem",
+  "@id": "#design-item-001",
+  "name": "フレーム材質選定",
+  "mfg:status": "decided",
+  "mfg:decidedBy": {"@id": "#emp-0042"},
+  "mfg:decidedAt": "2026-03-10T10:00:00+09:00",
+  "mfg:promotedTo": {"@id": "#cad-rac35-frame"},
+  "description": "SUS304 を選定。JIS E 7106 振動試験でのFEM解析結果（FEM-FRM-2026.pdf）により疲労強度が十分と判断。"
+}
+```
+
+### 9.4 設計事項間の依存関係
+
+設計事項同士をリンクすることで、設計の根拠連鎖を記録できます。
+
+```json
+[
+  {
+    "@id": "#design-item-001",
+    "name": "フレーム材質選定（SUS304）",
+    "mfg:designPhase": "basic_design",
+    "mfg:status": "decided"
+  },
+  {
+    "@id": "#design-item-002",
+    "name": "フレーム板厚決定（3.2mm）",
+    "mfg:designPhase": "detail_design",
+    "mfg:status": "decided",
+    "prov:wasDerivedFrom": {"@id": "#design-item-001"}
+  },
+  {
+    "@id": "#design-item-003",
+    "name": "架台幅決定（2100mm）",
+    "mfg:designPhase": "detail_design",
+    "mfg:status": "decided",
+    "mfg:promotedTo": {"@id": "#pmi-dim-frame-w"},
+    "prov:wasDerivedFrom": {"@id": "#req-weight"}
+  }
+]
+```
+
+### 9.5 断片 JSON をメインファイルにマージする
+
+`fragments/` ディレクトリに保存した断片 JSON は `scripts/merge.py` で統合します。
+
+```python
+# merge.py の動作イメージ
+import json, glob
+
+main = json.load(open("ro-crate-metadata.json"))
+index = {e["@id"]: i for i, e in enumerate(main["@graph"])}
+
+for path in glob.glob("fragments/*.json"):
+    fragment = json.load(open(path))
+    for entity in fragment["@graph"]:
+        if entity["@id"] in index:
+            # 同一 @id → 上書きマージ（旧版は wasRevisionOf で保持済みのはず）
+            main["@graph"][index[entity["@id"]]].update(entity)
+        else:
+            # 新規 → 追加
+            main["@graph"].append(entity)
+            index[entity["@id"]] = len(main["@graph"]) - 1
+
+json.dump(main, open("ro-crate-metadata.json", "w"), ensure_ascii=False, indent=2)
+```
+
+### 9.6 Creo トレイルファイルとの連携
+
+PTC Creo のトレイルファイル（操作ログ）を CADモデルに紐づけると、
+モデリング自動化スクリプトからナレッジグラフを参照できます。
+
+```json
+{
+  "@type": "mfg:CadModel",
+  "@id": "#cad-rac35-frame",
+  "mfg:fileRef": "cad/RAC35-FRM-RevB.step",
+
+  "schema:associatedMedia": [
+    {
+      "@type": "MediaObject",
+      "name": "Creo トレイルファイル Rev.B",
+      "encodingFormat": "text/plain",
+      "contentUrl": "cad/trail/RAC35-FRM-RevB.trl",
+      "mfg:mediaRole": "creo_trail"
+    }
+  ]
+}
+```
+
+トレイルファイルから `#cad-rac35-frame` の `mfg:hasPmi` を読み取り、
+PMI の名目値・公差を自動でモデルに適用する連携が可能になります。
+
+---
+
+*製造業ナレッジデータ管理フォーマット v1.1.0*
 *詳細仕様は `schema/schema-specification.md` を参照してください。*
