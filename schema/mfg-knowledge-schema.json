@@ -1,0 +1,705 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/mfg-knowledge/schema/1.0.0/mfg-knowledge-schema.json",
+  "title": "Manufacturing Knowledge Schema",
+  "description": "製造業ナレッジデータ管理フォーマット（RO-Crate拡張）のJSONスキーマ仕様 v1.0.0",
+  "version": "1.0.0",
+
+  "$defs": {
+
+    "IdRef": {
+      "type": "object",
+      "required": ["@id"],
+      "properties": {
+        "@id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "IsoDateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2}([+-]\\d{2}:\\d{2}|Z)?)?$"
+    },
+
+    "Revision": {
+      "type": "string",
+      "description": "版数。数値版（1.0, 2.3）またはアルファベット版（A, B, Rev.3）。",
+      "examples": ["1.0", "2.3", "A", "B", "Rev.3"]
+    },
+
+    "DocumentStatus": {
+      "type": "string",
+      "enum": ["draft", "under_review", "released", "obsolete"],
+      "description": "draft: 作成中 / under_review: 審査中 / released: 発行済 / obsolete: 廃止"
+    },
+
+    "Priority": {
+      "type": "string",
+      "enum": ["shall", "should", "may"],
+      "description": "shall: 必須 / should: 推奨 / may: 任意"
+    },
+
+    "CtqLevel": {
+      "type": "string",
+      "enum": ["CTQ", "major", "minor"],
+      "description": "CTQ: 安全・機能に直結（全数検査）/ major: 機能影響（AQL1.0）/ minor: 一般（AQL2.5）"
+    },
+
+    "ParametricRole": {
+      "type": "string",
+      "enum": ["driving", "driven", "reference", "fixed"],
+      "description": "driving: 親パラメータ / driven: 子パラメータ / reference: 参照のみ / fixed: 規格固定"
+    },
+
+    "Verdict": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "CONDITIONAL"],
+      "description": "CONDITIONAL: 条件付き合格（条件を mfg:conditionalNotes に記載）"
+    },
+
+    "MeasurementResult": {
+      "type": "object",
+      "required": ["parameter", "value", "limit", "result"],
+      "properties": {
+        "parameter":  { "type": "string", "description": "測定項目名" },
+        "value":      { "description": "測定値（数値または文字列）" },
+        "unit":       { "type": "string", "description": "単位（SI単位推奨）" },
+        "limit":      { "type": "string", "description": "合否基準（例: ≥35.0, ≤58, なし）" },
+        "result":     { "type": "string", "enum": ["PASS", "FAIL", "—"] }
+      },
+      "additionalProperties": false
+    },
+
+    "ChangeHistoryEntry": {
+      "type": "object",
+      "required": ["revision", "changedAt", "reason"],
+      "properties": {
+        "revision":  { "$ref": "#/$defs/Revision" },
+        "nominal":   { "type": "number" },
+        "upperTol":  { "type": "number" },
+        "lowerTol":  { "type": "number" },
+        "changedAt": { "$ref": "#/$defs/IsoDateTime" },
+        "changedBy": { "type": "string", "description": "変更者 @id または名前" },
+        "reason":    { "type": "string", "description": "変更理由" }
+      },
+      "additionalProperties": false
+    },
+
+    "Person": {
+      "type": "object",
+      "required": ["@type", "@id", "name"],
+      "properties": {
+        "@type":      { "const": "Person" },
+        "@id":        { "type": "string", "pattern": "^#emp-" },
+        "identifier": { "type": "string", "description": "社員番号（例: EMP-0042）" },
+        "name":       { "type": "string" },
+        "jobTitle":   { "type": "string" },
+        "memberOf":   { "$ref": "#/$defs/IdRef" },
+        "mfg:approvedAt": { "$ref": "#/$defs/IsoDateTime" }
+      },
+      "additionalProperties": false
+    },
+
+    "Organization": {
+      "type": "object",
+      "required": ["@type", "@id", "name"],
+      "properties": {
+        "@type":      { "const": "Organization" },
+        "@id":        { "type": "string", "pattern": "^#dept-" },
+        "identifier": { "type": "string" },
+        "name":       { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "Standard": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "version", "mfg:issuer", "mfg:status"],
+      "properties": {
+        "@type":           { "const": "mfg:Standard" },
+        "@id":             { "type": "string", "pattern": "^#std-" },
+        "identifier":      { "type": "string", "description": "規格番号（例: JIS E 4054）" },
+        "name":            { "type": "string" },
+        "version":         { "type": "string", "description": "制定・改訂年（例: 2016）" },
+        "url":             { "type": "string", "format": "uri" },
+        "description":     { "type": "string" },
+        "mfg:issuer":      { "type": "string", "description": "発行機関" },
+        "mfg:status":      {
+          "type": "string",
+          "enum": ["active", "withdrawn", "under_revision"]
+        },
+        "mfg:applicableTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "description": "適用先仕様書 @id のリスト"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "Requirement": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "description", "mfg:category", "mfg:priority"],
+      "properties": {
+        "@type":               { "const": "mfg:Requirement" },
+        "@id":                 { "type": "string", "pattern": "^#req-" },
+        "identifier":          { "type": "string", "pattern": "^REQ-\\d{3}" },
+        "name":                { "type": "string" },
+        "description":         { "type": "string" },
+        "mfg:category":        {
+          "type": "string",
+          "enum": ["performance", "safety", "reliability", "comfort", "mechanical", "electrical", "environmental"]
+        },
+        "mfg:priority":        { "$ref": "#/$defs/Priority" },
+        "mfg:standardRef":     { "$ref": "#/$defs/IdRef" },
+        "mfg:standardClause":  { "type": "string", "description": "規格条項番号（例: 6.3.1）" },
+        "mfg:verifiedBy":      { "$ref": "#/$defs/IdRef" },
+        "mfg:acceptanceCriteria": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "ProductSpec": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:revision", "mfg:status", "conformsTo", "mfg:requirements"],
+      "properties": {
+        "@type":               { "const": "mfg:ProductSpec" },
+        "@id":                 { "type": "string", "pattern": "^#spec-" },
+        "identifier":          { "type": "string" },
+        "name":                { "type": "string" },
+        "mfg:revision":        { "$ref": "#/$defs/Revision" },
+        "mfg:status":          { "$ref": "#/$defs/DocumentStatus" },
+        "dateModified":        { "$ref": "#/$defs/IsoDateTime" },
+        "author":              { "$ref": "#/$defs/IdRef" },
+        "conformsTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "minItems": 1,
+          "description": "準拠する標準規格 @id のリスト"
+        },
+        "mfg:requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Requirement" },
+          "minItems": 1
+        },
+        "mfg:linkedBom":        { "$ref": "#/$defs/IdRef" },
+        "mfg:linkedTestReport": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" }
+        },
+        "mfg:fileRef":          { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "BomEntry": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:partNumber", "mfg:quantity", "mfg:unit"],
+      "properties": {
+        "@type":           { "const": "mfg:BomEntry" },
+        "@id":             { "type": "string", "pattern": "^#bom-entry-" },
+        "identifier":      { "type": "string" },
+        "name":            { "type": "string" },
+        "mfg:partNumber":  { "type": "string" },
+        "mfg:quantity":    { "type": "number", "minimum": 0 },
+        "mfg:unit":        { "type": "string" },
+        "mfg:material":    { "type": "string" },
+        "mfg:massKg":      { "type": "number", "minimum": 0 },
+        "mfg:linkedCadModel": {
+          "oneOf": [
+            { "$ref": "#/$defs/IdRef" },
+            { "type": "null" }
+          ]
+        },
+        "mfg:procuredFrom": { "type": "string" },
+        "mfg:governedBy":   { "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "BillOfMaterials": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:revision", "mfg:status", "derivedFrom", "mfg:entries"],
+      "properties": {
+        "@type":           { "const": "mfg:BillOfMaterials" },
+        "@id":             { "type": "string", "pattern": "^#bom-" },
+        "identifier":      { "type": "string" },
+        "name":            { "type": "string" },
+        "mfg:revision":    { "$ref": "#/$defs/Revision" },
+        "mfg:status":      { "$ref": "#/$defs/DocumentStatus" },
+        "dateModified":    { "$ref": "#/$defs/IsoDateTime" },
+        "derivedFrom":     { "$ref": "#/$defs/IdRef" },
+        "mfg:totalMassKg": { "type": "number", "minimum": 0 },
+        "mfg:entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BomEntry" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "Datum": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "mfg:pmiType", "mfg:datumLabel"],
+      "properties": {
+        "@type":           { "type": "array", "contains": { "const": "mfg:Datum" } },
+        "@id":             { "type": "string", "pattern": "^#pmi-datum-" },
+        "identifier":      { "type": "string" },
+        "name":            { "type": "string" },
+        "mfg:pmiType":     { "const": "datum" },
+        "mfg:datumLabel":  { "type": "string", "pattern": "^[A-Z]$" },
+        "mfg:datumType":   {
+          "type": "string",
+          "enum": ["plane", "axis", "point"]
+        },
+        "mfg:description": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "DimensionAnnotation": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:nominal", "mfg:unit"],
+      "properties": {
+        "@type":                { "type": "array", "contains": { "const": "mfg:DimensionAnnotation" } },
+        "@id":                  { "type": "string", "pattern": "^#pmi-dim-" },
+        "identifier":           { "type": "string" },
+        "name":                 { "type": "string" },
+        "mfg:pmiType":          { "enum": ["linear_dimension", "angular_dimension", "reference_dimension"] },
+        "mfg:nominal":          { "type": "number" },
+        "mfg:upperTol":         { "type": "number" },
+        "mfg:lowerTol":         { "type": "number" },
+        "mfg:unit":             { "type": "string", "description": "mm / deg / inch 等" },
+        "mfg:toleranceClass":   { "type": "string", "description": "ITグレード（例: IT6）" },
+        "mfg:fitType":          { "type": "string", "description": "嵌め合い種別（例: H7/h6）" },
+        "mfg:ctqLevel":         { "$ref": "#/$defs/CtqLevel" },
+        "mfg:inspectionMethod": { "type": "string" },
+        "mfg:inspectionFrequency": { "type": "string" },
+        "mfg:parametricRole":   { "$ref": "#/$defs/ParametricRole" },
+        "mfg:parametricName":   { "type": "string", "description": "CADパラメータ変数名" },
+        "mfg:parametricFormula":{ "type": "string", "description": "driven寸法の計算式" },
+        "mfg:drives": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "description": "この寸法が駆動する子パラメータ @id のリスト"
+        },
+        "mfg:drivenBy":         { "$ref": "#/$defs/IdRef" },
+        "mfg:changeImpact":     { "type": "string" },
+        "mfg:linkedRequirement":{ "$ref": "#/$defs/IdRef" },
+        "mfg:verifiedByPmi":    { "$ref": "#/$defs/IdRef" },
+        "mfg:changeHistory": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ChangeHistoryEntry" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "GeometricTolerance": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:characteristic", "mfg:symbol", "mfg:toleranceZone"],
+      "properties": {
+        "@type":                { "type": "array", "contains": { "const": "mfg:GeometricTolerance" } },
+        "@id":                  { "type": "string", "pattern": "^#pmi-gt-" },
+        "identifier":           { "type": "string" },
+        "name":                 { "type": "string" },
+        "mfg:pmiType":          { "const": "geometric_tolerance" },
+        "mfg:characteristic":   {
+          "type": "string",
+          "enum": [
+            "真直度", "平面度", "真円度", "円筒度",
+            "線の輪郭度", "面の輪郭度",
+            "平行度", "直角度", "傾斜度",
+            "位置度", "同軸度", "対称度",
+            "円周振れ", "全振れ",
+            "Straightness", "Flatness", "Circularity", "Cylindricity",
+            "Profile_Line", "Profile_Surface",
+            "Parallelism", "Perpendicularity", "Angularity",
+            "Position", "Concentricity", "Symmetry",
+            "Circular_Runout", "Total_Runout"
+          ]
+        },
+        "mfg:symbol":           { "type": "string" },
+        "mfg:toleranceZone": {
+          "type": "object",
+          "required": ["value", "unit"],
+          "properties": {
+            "value":  { "type": "number", "minimum": 0 },
+            "unit":   { "type": "string" },
+            "shape":  { "type": "string", "enum": ["linear", "円", "球"] }
+          }
+        },
+        "mfg:datumRef": {
+          "oneOf": [
+            { "$ref": "#/$defs/IdRef" },
+            { "type": "array", "items": { "$ref": "#/$defs/IdRef" } },
+            { "type": "null" }
+          ]
+        },
+        "mfg:ctqLevel":         { "$ref": "#/$defs/CtqLevel" },
+        "mfg:inspectionMethod": { "type": "string" },
+        "mfg:inspectionFrequency": { "type": "string" },
+        "mfg:linkedRequirement":{ "$ref": "#/$defs/IdRef" },
+        "mfg:verifiedByPmi":    { "$ref": "#/$defs/IdRef" },
+        "mfg:relatedBomEntry":  { "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "SurfaceFinish": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:parameter", "mfg:value", "mfg:unit"],
+      "properties": {
+        "@type":                { "type": "array", "contains": { "const": "mfg:SurfaceFinish" } },
+        "@id":                  { "type": "string", "pattern": "^#pmi-sf-" },
+        "identifier":           { "type": "string" },
+        "name":                 { "type": "string" },
+        "mfg:pmiType":          { "const": "surface_finish" },
+        "mfg:parameter":        { "type": "string", "enum": ["Ra", "Rz", "Rmax", "Wa", "Wz"] },
+        "mfg:value":            { "type": "number", "minimum": 0 },
+        "mfg:unit":             { "type": "string", "default": "μm" },
+        "mfg:standard":         { "type": "string" },
+        "mfg:machiningMethod":  { "type": "string" },
+        "mfg:machiningAllowance":{ "type": "string" },
+        "mfg:treatment":        { "type": "string" },
+        "mfg:ctqLevel":         { "$ref": "#/$defs/CtqLevel" },
+        "mfg:inspectionMethod": { "type": "string" },
+        "mfg:inspectionFrequency": { "type": "string" },
+        "mfg:linkedRequirement":{ "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "NoteItem": {
+      "type": "object",
+      "required": ["seq", "text"],
+      "properties": {
+        "seq":              { "type": "integer", "minimum": 1 },
+        "text":             { "type": "string" },
+        "mfg:applicableTo": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "GeneralNote": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "mfg:pmiType", "mfg:noteItems"],
+      "properties": {
+        "@type":          { "type": "array", "contains": { "const": "mfg:GeneralNote" } },
+        "@id":            { "type": "string", "pattern": "^#pmi-note-" },
+        "identifier":     { "type": "string" },
+        "name":           { "type": "string" },
+        "mfg:pmiType":    { "const": "general_note" },
+        "mfg:scope":      {
+          "type": "string",
+          "enum": ["drawing_wide", "local", "bom_wide"]
+        },
+        "mfg:noteItems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NoteItem" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ProcessNote": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:processType", "mfg:noteText"],
+      "properties": {
+        "@type":              { "type": "array", "contains": { "const": "mfg:ProcessNote" } },
+        "@id":                { "type": "string", "pattern": "^#pmi-procnote-" },
+        "identifier":         { "type": "string" },
+        "name":               { "type": "string" },
+        "mfg:pmiType":        { "const": "process_note" },
+        "mfg:processType":    {
+          "type": "string",
+          "enum": [
+            "heat_treatment", "surface_treatment", "welding",
+            "inspection", "assembly", "cleaning", "packaging"
+          ]
+        },
+        "mfg:applicableTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" }
+        },
+        "mfg:noteText":       { "type": "string" },
+        "mfg:processParameters": {
+          "type": "object",
+          "description": "工程パラメータ（温度・時間等）の名目値と許容差",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "nominal": { "type": "number" },
+              "tolerance": { "type": "number" },
+              "min": { "type": "number" },
+              "max": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "mfg:ctqLevel":         { "$ref": "#/$defs/CtqLevel" },
+        "mfg:inspectionMethod": { "type": "string" },
+        "mfg:linkedRequirement":{ "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "WeldAnnotation": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:weldType"],
+      "properties": {
+        "@type":                  { "type": "array", "contains": { "const": "mfg:WeldAnnotation" } },
+        "@id":                    { "type": "string", "pattern": "^#pmi-weld-" },
+        "identifier":             { "type": "string" },
+        "name":                   { "type": "string" },
+        "mfg:pmiType":            { "const": "weld_symbol" },
+        "mfg:weldType":           { "type": "string" },
+        "mfg:jointType":          { "type": "string" },
+        "mfg:throatSize": {
+          "type": "object",
+          "required": ["value", "unit"],
+          "properties": {
+            "value": { "type": "number" },
+            "unit":  { "type": "string" }
+          }
+        },
+        "mfg:weldLength":         { "type": "string" },
+        "mfg:standard":           { "type": "string" },
+        "mfg:inspectionMethod":   { "type": "string" },
+        "mfg:inspectionCoverage": { "type": "string" },
+        "mfg:ctqLevel":           { "$ref": "#/$defs/CtqLevel" },
+        "mfg:linkedRequirement":  { "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "MaterialAnnotation": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:pmiType", "mfg:material"],
+      "properties": {
+        "@type":               { "type": "array", "contains": { "const": "mfg:MaterialAnnotation" } },
+        "@id":                 { "type": "string", "pattern": "^#pmi-mat-" },
+        "identifier":          { "type": "string" },
+        "name":                { "type": "string" },
+        "mfg:pmiType":         { "const": "material_callout" },
+        "mfg:material":        { "type": "string" },
+        "mfg:materialStandard":{ "type": "string" },
+        "mfg:heatTreatment":   { "type": "string" },
+        "mfg:hardness":        { "type": ["string", "null"] },
+        "mfg:certification":   { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "PmiAnnotation": {
+      "description": "PMIアノテーション共用型（anyOf で各PMI種別にディスパッチ）",
+      "anyOf": [
+        { "$ref": "#/$defs/Datum" },
+        { "$ref": "#/$defs/DimensionAnnotation" },
+        { "$ref": "#/$defs/GeometricTolerance" },
+        { "$ref": "#/$defs/SurfaceFinish" },
+        { "$ref": "#/$defs/GeneralNote" },
+        { "$ref": "#/$defs/ProcessNote" },
+        { "$ref": "#/$defs/WeldAnnotation" },
+        { "$ref": "#/$defs/MaterialAnnotation" }
+      ]
+    },
+
+    "InspectionItem": {
+      "type": "object",
+      "required": ["sequence", "pmiRef", "characteristic", "ctqLevel", "method", "frequency", "acceptanceCriteria"],
+      "properties": {
+        "sequence":            { "type": "integer", "minimum": 1 },
+        "pmiRef":              { "$ref": "#/$defs/IdRef" },
+        "characteristic":      { "type": "string" },
+        "ctqLevel":            { "$ref": "#/$defs/CtqLevel" },
+        "method":              { "type": "string" },
+        "frequency":           { "type": "string" },
+        "acceptanceCriteria":  { "type": "string" },
+        "recordRequired":      { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+
+    "InspectionPlan": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:derivedFromCad", "mfg:inspectionItems"],
+      "properties": {
+        "@type":               { "const": "mfg:InspectionPlan" },
+        "@id":                 { "type": "string", "pattern": "^#insp-plan-" },
+        "identifier":          { "type": "string" },
+        "name":                { "type": "string" },
+        "mfg:derivedFromCad":  { "$ref": "#/$defs/IdRef" },
+        "mfg:derivedFromSpec": { "$ref": "#/$defs/IdRef" },
+        "mfg:revision":        { "$ref": "#/$defs/Revision" },
+        "dateModified":        { "$ref": "#/$defs/IsoDateTime" },
+        "mfg:inspectionItems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/InspectionItem" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "CadModel": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:revision", "mfg:status", "mfg:format", "mfg:fileRef"],
+      "properties": {
+        "@type":               { "const": "mfg:CadModel" },
+        "@id":                 { "type": "string", "pattern": "^#cad-" },
+        "identifier":          { "type": "string" },
+        "name":                { "type": "string" },
+        "mfg:revision":        { "$ref": "#/$defs/Revision" },
+        "mfg:status":          { "$ref": "#/$defs/DocumentStatus" },
+        "mfg:format":          {
+          "type": "string",
+          "enum": ["STEP AP203", "STEP AP214", "STEP AP242", "JT", "3MF", "IGES"]
+        },
+        "mfg:fileRef":         { "type": "string" },
+        "mfg:nativeFileRef":   { "type": "string" },
+        "dateModified":        { "$ref": "#/$defs/IsoDateTime" },
+        "mfg:mbdCompliant":    { "type": "boolean", "default": false },
+        "mfg:mbdStandard":     { "type": "string", "description": "例: ISO 16792:2015" },
+        "mfg:derivedFrom":     { "$ref": "#/$defs/IdRef" },
+        "mfg:referencedInBom": {
+          "oneOf": [
+            { "$ref": "#/$defs/IdRef" },
+            { "type": "array", "items": { "$ref": "#/$defs/IdRef" } }
+          ]
+        },
+        "mfg:validatedBy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" }
+        },
+        "mfg:hasPmi": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PmiAnnotation" }
+        },
+        "mfg:inspectionPlan":  { "$ref": "#/$defs/IdRef" },
+        "mfg:designNote":      { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "TestReport": {
+      "type": "object",
+      "required": ["@type", "@id", "identifier", "name", "mfg:revision", "mfg:status",
+                   "mfg:verifies", "mfg:conformsTo", "mfg:derivedFrom", "mfg:verdict", "mfg:fileRef"],
+      "properties": {
+        "@type":               { "const": "mfg:TestReport" },
+        "@id":                 { "type": "string", "pattern": "^#test-" },
+        "identifier":          { "type": "string" },
+        "name":                { "type": "string" },
+        "mfg:revision":        { "$ref": "#/$defs/Revision" },
+        "mfg:status":          { "$ref": "#/$defs/DocumentStatus" },
+        "dateCreated":         { "$ref": "#/$defs/IsoDateTime" },
+        "author":              { "$ref": "#/$defs/IdRef" },
+        "mfg:verifies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "minItems": 1,
+          "description": "検証対象の要求事項 @id のリスト"
+        },
+        "mfg:conformsTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "minItems": 1,
+          "description": "試験が準拠する標準規格 @id のリスト"
+        },
+        "mfg:testedObject": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" }
+        },
+        "mfg:derivedFrom":     { "$ref": "#/$defs/IdRef" },
+        "mfg:testConditions":  {
+          "type": "object",
+          "description": "試験条件（フリーフォーム。キーは試験種別に応じて定義）",
+          "additionalProperties": {}
+        },
+        "mfg:verdict":         { "$ref": "#/$defs/Verdict" },
+        "mfg:conditionalNotes":{ "type": "string" },
+        "mfg:fileRef":         { "type": "string" },
+        "mfg:measurements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MeasurementResult" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "RoCrateDescriptor": {
+      "type": "object",
+      "required": ["@type", "@id", "conformsTo", "about"],
+      "properties": {
+        "@type":      { "const": "CreativeWork" },
+        "@id":        { "const": "ro-crate-metadata.json" },
+        "conformsTo": { "$ref": "#/$defs/IdRef" },
+        "about":      { "$ref": "#/$defs/IdRef" }
+      },
+      "additionalProperties": false
+    },
+
+    "RootDataset": {
+      "type": "object",
+      "required": ["@type", "@id", "name", "identifier", "dateCreated", "hasPart"],
+      "properties": {
+        "@type":       { "const": "Dataset" },
+        "@id":         { "const": "./" },
+        "name":        { "type": "string" },
+        "identifier":  { "type": "string", "pattern": "^PKG-" },
+        "description": { "type": "string" },
+        "dateCreated": { "$ref": "#/$defs/IsoDateTime" },
+        "hasPart": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdRef" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "type": "object",
+  "required": ["@context", "@graph"],
+  "properties": {
+
+    "@context": {
+      "type": "array",
+      "description": "JSON-LDコンテキスト。RO-Crate + schema.org + mfg拡張語彙の3要素を含む。",
+      "minItems": 3,
+      "prefixItems": [
+        { "type": "string", "const": "https://w3id.org/ro/crate/1.1/context" },
+        { "type": "string", "const": "https://schema.org" },
+        { "type": "object" }
+      ]
+    },
+
+    "@graph": {
+      "type": "array",
+      "description": "全エンティティの配列。先頭2要素は RO-Crate記述子とルートデータセット。",
+      "minItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/RoCrateDescriptor" },
+        { "$ref": "#/$defs/RootDataset" }
+      ],
+      "items": {
+        "anyOf": [
+          { "$ref": "#/$defs/RoCrateDescriptor" },
+          { "$ref": "#/$defs/RootDataset" },
+          { "$ref": "#/$defs/Person" },
+          { "$ref": "#/$defs/Organization" },
+          { "$ref": "#/$defs/Standard" },
+          { "$ref": "#/$defs/ProductSpec" },
+          { "$ref": "#/$defs/BillOfMaterials" },
+          { "$ref": "#/$defs/CadModel" },
+          { "$ref": "#/$defs/InspectionPlan" },
+          { "$ref": "#/$defs/TestReport" }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}
