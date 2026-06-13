@@ -224,6 +224,8 @@ MBD（Model-Based Definition）に基づく 3D モデル。PMI を内包する�
 | `mfg:linkedRequirement` | PmiAnnotation → Requirement | PMI が根拠とする要求事項 |
 | `mfg:verifiedByPmi` | PmiAnnotation → TestReport | PMI 寸法・公差を検証した試験 |
 | `mfg:inspectionPlan` | CadModel → InspectionPlan | PMI から生成した検査計画 |
+| `mfg:drives` | DimensionAnnotation → DimensionAnnotation | 親パラメータが駆動する子パラメータ |
+| `mfg:drivenBy` | DimensionAnnotation → DimensionAnnotation | この寸法を駆動する親パラメータ |
 
 ### 4.2 リンク方向の原則
 
@@ -267,7 +269,13 @@ CAD ─── validatedBy ───→ 試験成績書
 | CADモデル | `#cad-{製品コード}-{部品略称}` | `#cad-rac35-frame` |
 | 要求事項 | `#req-{キーワード}` | `#req-vibration-roof` |
 | 試験成績書 | `#test-{試験種別}-{年}` | `#test-vibration-2026` |
-| PMI | `#pmi-{種別}-{連番}` | `#pmi-gt-001` |
+| PMI（幾何公差） | `#pmi-gt-{連番}` | `#pmi-gt-001` |
+| PMI（寸法値） | `#pmi-dim-{部品略称}-{連番}` | `#pmi-dim-frame-w` |
+| PMI（表面性状） | `#pmi-sf-{連番}` | `#pmi-sf-001` |
+| PMI（注記） | `#pmi-note-{連番}` / `#pmi-procnote-{連番}` | `#pmi-note-001` |
+| PMI（溶接） | `#pmi-weld-{連番}` | `#pmi-weld-001` |
+| PMI（材料指示） | `#pmi-mat-{連番}` | `#pmi-mat-001` |
+| PMI（データム） | `#pmi-datum-{ラベル}` | `#pmi-datum-A` |
 | 検査計画 | `#insp-plan-{部品略称}` | `#insp-plan-frame` |
 
 ### 5.3 `@context` テンプレート
@@ -309,7 +317,25 @@ CAD ─── validatedBy ───→ 試験成績書
       "verifiedByPmi":       "mfg:verifiedByPmi",
       "linkedRequirement":   "mfg:linkedRequirement",
       "revision":            "mfg:revision",
-      "status":              "mfg:status"
+      "status":              "mfg:status",
+      "DimensionAnnotation": "mfg:DimensionAnnotation",
+      "GeneralNote":         "mfg:GeneralNote",
+      "ProcessNote":         "mfg:ProcessNote",
+      "WeldAnnotation":      "mfg:WeldAnnotation",
+      "MaterialAnnotation":  "mfg:MaterialAnnotation",
+      "nominal":             "mfg:nominal",
+      "upperTol":            "mfg:upperTol",
+      "lowerTol":            "mfg:lowerTol",
+      "parametricRole":      "mfg:parametricRole",
+      "parametricName":      "mfg:parametricName",
+      "parametricFormula":   "mfg:parametricFormula",
+      "drives":              "mfg:drives",
+      "drivenBy":            "mfg:drivenBy",
+      "changeImpact":        "mfg:changeImpact",
+      "changeHistory":       "mfg:changeHistory",
+      "noteItems":           "mfg:noteItems",
+      "noteText":            "mfg:noteText",
+      "processParameters":   "mfg:processParameters"
     }
   ]
 }
@@ -339,39 +365,269 @@ CAD ─── validatedBy ───→ 試験成績書
 
 ## 6. PMI連携仕様
 
-### 6.1 PMI種別と対応エンティティ型
+### 6.1 PMIの定義
+
+PMI（Product Manufacturing Information）は 3D CAD モデルに直接付与される
+すべての製造指示情報を指す。本仕様では以下を PMI の範囲とする。
+
+```
+PMI（Product Manufacturing Information）
+├── 【寸法値】      名目寸法・許容差・参照寸法
+├── 【幾何公差】    GD&T / GPS（真円度・位置度・平面度 等）
+├── 【表面性状】    粗さパラメータ（Ra / Rz / Rmax）・うねり・加工方法
+├── 【注記事項】    一般注記・工程指示・検査指示・特殊要求
+├── 【データム】    基準面・基準軸・基準点の定義
+├── 【溶接記号】    溶接種別・サイズ・検査区分
+└── 【材料・処理指示】材質・熱処理・表面処理・調達仕様
+```
+
+さらに本仕様では PMI をパラメトリック設計における **主要パラメータ**と位置づける。
+CAD モデル内の各 PMI は他の PMI や要求事項・試験成績書と依存関係（親子関係）を持ち、
+1つの寸法値変更が連鎖する影響範囲をグラフで追跡できる。
+
+### 6.2 PMI種別と対応エンティティ型
 
 | PMI種別 | `@type` | `mfg:pmiType` 値 | 主要フィールド |
 |---|---|---|---|
+| 寸法値（長さ・角度） | `DimensionAnnotation` | `linear_dimension` / `angular_dimension` | `nominal`, `upperTol`, `lowerTol`, `unit` |
+| 参照寸法 | `DimensionAnnotation` | `reference_dimension` | `nominal`, `unit`（公差なし・情報のみ） |
 | 幾何公差（GD&T/GPS） | `GeometricTolerance` | `geometric_tolerance` | `characteristic`, `symbol`, `toleranceZone`, `datumRef` |
-| 表面性状 | `SurfaceFinish` | `surface_finish` | `parameter`（Ra/Rz等）, `value`, `treatment` |
-| データム | `Datum` | `datum` | `datumLabel`, `description` |
-| 寸法注記 | `PmiAnnotation` | `linear_dimension` | `dimensions`（nominal + tolerance） |
-| 溶接記号 | `PmiAnnotation` | `weld_symbol` | `weldType`, `throatSize`, `inspectionCoverage` |
-| 材料・熱処理指示 | `PmiAnnotation` | `material_callout` | `material`, `materialStandard`, `heatTreatment` |
+| 表面性状 | `SurfaceFinish` | `surface_finish` | `parameter`（Ra/Rz等）, `value`, `machiningMethod` |
+| 一般注記 | `GeneralNote` | `general_note` | `noteText`, `scope` |
+| 工程・検査指示注記 | `ProcessNote` | `process_note` | `noteText`, `processType`, `applicableTo` |
+| データム | `Datum` | `datum` | `datumLabel`, `datumType`, `description` |
+| 溶接記号 | `WeldAnnotation` | `weld_symbol` | `weldType`, `throatSize`, `inspectionCoverage` |
+| 材料・熱処理指示 | `MaterialAnnotation` | `material_callout` | `material`, `materialStandard`, `heatTreatment` |
 
-### 6.2 CTQレベル定義
+### 6.3 寸法値エンティティ（DimensionAnnotation）の詳細仕様
+
+```json
+{
+  "@type": ["PmiAnnotation", "DimensionAnnotation"],
+  "@id": "#pmi-dim-{連番}",
+  "identifier": "PMI-{部品略称}-DIM-{連番}",
+  "name": "{寸法の意味・名称}",
+  "mfg:pmiType": "linear_dimension",
+
+  "mfg:nominal": 120.0,
+  "mfg:upperTol": 0.05,
+  "mfg:lowerTol": -0.05,
+  "mfg:unit": "mm",
+
+  "mfg:toleranceClass": "IT6",
+  "mfg:fitType": "隙間嵌め H7/h6",
+
+  "mfg:ctqLevel": "CTQ",
+  "mfg:inspectionMethod": "内径マイクロメータ",
+  "mfg:inspectionFrequency": "全数",
+
+  "mfg:parametricRole": "driving",
+  "mfg:parametricName": "compressor_bore_dia",
+  "mfg:drivenBy": null,
+  "mfg:drives": [
+    {"@id": "#pmi-dim-{関連寸法}"}
+  ],
+
+  "mfg:linkedRequirement": {"@id": "#req-xxx"},
+  "mfg:verifiedByPmi": {"@id": "#test-xxx"},
+  "mfg:changeHistory": [
+    {
+      "revision": "A",
+      "nominal": 118.0,
+      "upperTol": 0.05,
+      "lowerTol": -0.05,
+      "changedAt": "2025-12-01",
+      "reason": "圧縮機サプライヤ変更に伴う外形変更"
+    }
+  ]
+}
+```
+
+### 6.4 注記事項エンティティの詳細仕様
+
+注記（Note）は一般注記と工程・検査指示注記に分類する。
+
+#### 一般注記（GeneralNote）
+
+```json
+{
+  "@type": ["PmiAnnotation", "GeneralNote"],
+  "@id": "#pmi-note-{連番}",
+  "identifier": "PMI-{部品略称}-NOTE-{連番}",
+  "name": "一般注記",
+  "mfg:pmiType": "general_note",
+  "mfg:scope": "drawing_wide",
+
+  "mfg:noteItems": [
+    {
+      "seq": 1,
+      "text": "図示なき角部は R0.5 以下に面取りすること",
+      "mfg:applicableTo": "all_edges"
+    },
+    {
+      "seq": 2,
+      "text": "溶接後、変形修正は禁止。規定値を超えた場合は設計部門に連絡すること",
+      "mfg:applicableTo": "weld_process"
+    },
+    {
+      "seq": 3,
+      "text": "ミルシートは製品に添付すること",
+      "mfg:applicableTo": "material_traceability"
+    }
+  ]
+}
+```
+
+#### 工程・検査指示注記（ProcessNote）
+
+```json
+{
+  "@type": ["PmiAnnotation", "ProcessNote"],
+  "@id": "#pmi-procnote-{連番}",
+  "identifier": "PMI-{部品略称}-PN-{連番}",
+  "name": "溶接後熱処理指示",
+  "mfg:pmiType": "process_note",
+  "mfg:processType": "heat_treatment",
+  "mfg:applicableTo": ["#bom-entry-frame"],
+
+  "mfg:noteText": "溶接完了後、応力除去焼鈍を実施すること。条件: 600±10℃ × 2h、炉冷（100℃/h以下）",
+
+  "mfg:processParameters": {
+    "temperatureC":    {"nominal": 600, "tolerance": 10},
+    "holdTimeH":       {"nominal": 2,   "tolerance": 0},
+    "coolingRateCph":  {"max": 100}
+  },
+
+  "mfg:ctqLevel": "CTQ",
+  "mfg:inspectionMethod": "熱処理炉温度記録紙（チャート）確認",
+  "mfg:linkedRequirement": {"@id": "#req-vibration-roof"}
+}
+```
+
+### 6.5 パラメトリック依存関係の表現
+
+パラメトリック設計では、ある寸法（親パラメータ）が変わると他の寸法（子パラメータ）が連動する。
+この依存関係を `mfg:parametricRole` と `mfg:drives` / `mfg:drivenBy` で表現する。
+
+```
+mfg:parametricRole の値:
+  "driving"  … 他の寸法を駆動する親パラメータ（スケルトンモデルの主要寸法等）
+  "driven"   … 親パラメータから計算される子パラメータ
+  "reference"… 参照のみ（変更不可の参照寸法）
+  "fixed"    … 規格・標準部品により固定される寸法
+```
+
+#### 電車用空調機 筐体フレームの例
+
+```json
+[
+  {
+    "@type": ["PmiAnnotation", "DimensionAnnotation"],
+    "@id": "#pmi-dim-frame-w",
+    "identifier": "PMI-FRM-DIM-010",
+    "name": "架台幅（車体取付ピッチ基準）",
+    "mfg:pmiType": "linear_dimension",
+    "mfg:nominal": 2100,
+    "mfg:upperTol": 0,
+    "mfg:lowerTol": -2,
+    "mfg:unit": "mm",
+    "mfg:parametricRole": "driving",
+    "mfg:parametricName": "frame_width",
+    "mfg:drives": [
+      {"@id": "#pmi-dim-cond-w"},
+      {"@id": "#pmi-dim-evap-w"},
+      {"@id": "#pmi-dim-inv-pos"}
+    ],
+    "mfg:ctqLevel": "CTQ",
+    "mfg:linkedRequirement": {"@id": "#req-weight"},
+    "mfg:changeImpact": "車体取付穴ピッチに直結。変更時は車両メーカー承認必須"
+  },
+
+  {
+    "@type": ["PmiAnnotation", "DimensionAnnotation"],
+    "@id": "#pmi-dim-cond-w",
+    "identifier": "PMI-COND-DIM-001",
+    "name": "凝縮器ユニット幅",
+    "mfg:pmiType": "linear_dimension",
+    "mfg:nominal": 980,
+    "mfg:upperTol": 0,
+    "mfg:lowerTol": -1,
+    "mfg:unit": "mm",
+    "mfg:parametricRole": "driven",
+    "mfg:parametricName": "condenser_width",
+    "mfg:drivenBy": {"@id": "#pmi-dim-frame-w"},
+    "mfg:parametricFormula": "frame_width / 2 - 70",
+    "mfg:ctqLevel": "major"
+  },
+
+  {
+    "@type": ["PmiAnnotation", "DimensionAnnotation"],
+    "@id": "#pmi-dim-inv-pos",
+    "identifier": "PMI-INV-DIM-001",
+    "name": "インバータ盤 取付位置（フレーム端からの距離）",
+    "mfg:pmiType": "linear_dimension",
+    "mfg:nominal": 150,
+    "mfg:upperTol": 2,
+    "mfg:lowerTol": -2,
+    "mfg:unit": "mm",
+    "mfg:parametricRole": "driven",
+    "mfg:parametricName": "inverter_pos_x",
+    "mfg:drivenBy": {"@id": "#pmi-dim-frame-w"},
+    "mfg:ctqLevel": "major",
+    "mfg:linkedRequirement": {"@id": "#req-insulation"}
+  }
+]
+```
+
+#### 依存グラフ（architecture_width 変更時の影響波及）
+
+```
+#pmi-dim-frame-w（frame_width = 2100mm）  ← 親パラメータ
+  │
+  ├─ drives → #pmi-dim-cond-w   （condenser_width = frame_width/2 - 70）
+  │               └─ linkedRequirement → #req-cooling-capacity
+  │               └─ verifiedByPmi    → #test-cooling-2026  ← 再試験トリガ
+  │
+  ├─ drives → #pmi-dim-evap-w   （evaporator_width = frame_width/2 - 70）
+  │               └─ verifiedByPmi → #test-cooling-2026
+  │
+  └─ drives → #pmi-dim-inv-pos  （inverter_pos = 150mm from edge）
+                  └─ linkedRequirement → #req-insulation
+                  └─ verifiedByPmi    → #test-insulation-2026 ← 再試験トリガ
+```
+
+**frame_width を変更した場合の自動影響抽出:**
+1. `#pmi-dim-frame-w.drives` を走査 → 子パラメータ3件を取得
+2. 各子パラメータの `verifiedByPmi` を集約 → `TEST-COOL`, `TEST-INS` を再試験リストに追加
+3. `linkedRequirement` を集約 → `REQ-001`, `REQ-004` を影響要求事項リストに追加
+
+### 6.6 CTQレベル定義
 
 | `mfg:ctqLevel` | 意味 | 検査頻度の目安 |
 |---|---|---|
-| `CTQ` | Critical To Quality：安全・機能に直結 | 全数検査・記録必須 |
-| `major` | 重要特性：機能に影響 | 抜取（AQL 1.0） |
+| `CTQ` | Critical To Quality：安全・機能・規格適合に直結 | 全数検査・記録必須 |
+| `major` | 重要特性：製品機能に影響 | 抜取（AQL 1.0） |
 | `minor` | 一般特性 | 抜取（AQL 2.5） |
 
-### 6.3 PMI → 検査計画の自動生成ルール
+### 6.7 PMI → 検査計画の自動生成ルール
 
 ```
-1. CadModel.hasPmi[] を走査
-2. ctqLevel が "CTQ" → InspectionPlan.inspectionItems[] に全数検査として追加
-3. ctqLevel が "major" → AQL 1.0 の抜取検査として追加
-4. ctqLevel が "minor" → AQL 2.5 の抜取検査として追加
-5. linkedRequirement が存在する場合は acceptanceCriteria に要求事項の description を転記
+1. CadModel.hasPmi[] を走査（DimensionAnnotation・GeometricTolerance・SurfaceFinish・ProcessNote を対象）
+2. ctqLevel == "CTQ"   → 全数検査・記録必須として InspectionPlan.inspectionItems[] に追加
+3. ctqLevel == "major" → AQL 1.0 抜取として追加
+4. ctqLevel == "minor" → AQL 2.5 抜取として追加
+5. linkedRequirement が存在 → acceptanceCriteria に要求事項の description を転記
+6. ProcessNote（process_note）→ 工程内検査・自主検査項目として別セクションに追加
+7. 生成した InspectionPlan を CadModel.inspectionPlan にリンク
 ```
 
-### 6.4 MBD準拠フラグ
+### 6.8 MBD準拠フラグ
 
 `mfg:mbdCompliant: true` を設定した CAD モデルは、図面（2D図）を廃止し
 3D モデルの PMI を唯一の製造指示源とする MBD 運用に対応していることを示す。
+
+MBD運用時、PMI の `mfg:noteItems` および `mfg:noteText` が
+従来の図面注記欄に相当する唯一の製造指示となる。
 
 ---
 
